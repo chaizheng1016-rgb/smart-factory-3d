@@ -49,7 +49,7 @@ export class UI {
         <div class="brand-mark">厂</div>
         <div>
           <div class="brand-title">智能工厂 · 全流程三维仿真</div>
-          <div class="brand-sub">来料暂存 → IQC → 原料仓 → 上料 → 加工 → 装配 → OQC → 包装码垛 → 成品入库</div>
+          <div class="brand-sub">来料收货 → 原料库 → 提升上料 → 合成 / 复配 / 灌装 → 冷却下料 → 成品库 → 发运</div>
         </div>
       </div>
       <div class="topbar-spacer"></div>
@@ -108,7 +108,7 @@ export class UI {
     body.innerHTML = `
       <div class="kpi-grid">
         <div class="kpi"><div class="kpi-label">今日入库</div><div class="kpi-value" id="kpi-prod">0<span class="kpi-unit">垛</span></div><div class="kpi-trend up">▲ 目标 120 垛</div></div>
-        <div class="kpi"><div class="kpi-label">在制品</div><div class="kpi-value" id="kpi-wip2">0<span class="kpi-unit">件</span></div><div class="kpi-trend">线边 6 工位</div></div>
+        <div class="kpi"><div class="kpi-label">在制品</div><div class="kpi-value" id="kpi-wip2">0<span class="kpi-unit">件</span></div><div class="kpi-trend">北墙三条产线</div></div>
         <div class="kpi"><div class="kpi-label">平均节拍</div><div class="kpi-value" id="kpi-cycle">0<span class="kpi-unit">s</span></div><div class="kpi-trend up">▲ 优于目标 8%</div></div>
         <div class="kpi"><div class="kpi-label">设备综合效率</div><div class="kpi-value" id="kpi-oee">0<span class="kpi-unit">%</span></div><div class="kpi-trend up">▲ 较昨日 +2.4</div></div>
         <div class="kpi"><div class="kpi-label">一次合格率</div><div class="kpi-value" id="kpi-qc">0<span class="kpi-unit">%</span></div><div class="kpi-trend up">▲ 目标 98.5%</div></div>
@@ -211,8 +211,8 @@ export class UI {
 
     const legend = el('div', 'legend');
     legend.innerHTML = `
-      <span><i style="background:#9aa4b2"></i>来料</span>
-      <span><i style="background:#4a9eff"></i>在制</span>
+      <span><i style="background:#4a9eff"></i>来料</span>
+      <span><i style="background:#ff8a2b"></i>在制</span>
       <span><i style="background:#2fd07a"></i>成品</span>
       <span class="hint">左键旋转 · 右键平移 · 滚轮缩放 · 点击设备定位</span>
     `;

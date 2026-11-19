@@ -25,7 +25,8 @@ app.onResize = () => rig.maybeRefitOverview();
 
 app.onUpdate = (dt, elapsed) => {
   flow.update(dt);
-  factory.update(dt, elapsed);
+  const vis = flow.paused ? 0 : dt * flow.timeScale;
+  factory.update(vis, elapsed);
   rig.update(dt);
   ui.update(dt);
 };

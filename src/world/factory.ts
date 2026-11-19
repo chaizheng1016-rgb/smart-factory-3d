@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildBuilding } from './building';
 import { createLabelSprite } from '../core/textures';
+import { dampAngle, mergeStaticMeshes } from '../core/utils';
 import {
   LINES,
   LEVEL2_Y,
@@ -59,6 +60,14 @@ export interface Station {
   stop?: LineStop;
 }
 
+export interface LiftRig {
+  cage: THREE.Object3D;
+  counter: THREE.Object3D | null;
+  x: number;
+  z: number;
+  homeY: number;
+}
+
 export interface Factory {
   root: THREE.Group;
   stations: Station[];
@@ -70,6 +79,7 @@ export interface Factory {
   stationTowers: Record<string, TowerHandle>;
   agvs: AgvHandle[];
   forklift: THREE.Group;
+  lifts: LiftRig[];
   update(dt: number, t: number): void;
 }
 
@@ -127,6 +137,7 @@ export function buildFactory(scene: THREE.Scene): Factory {
     hit.position.copy(s.anchor);
     hit.position.y += 1.3;
     hit.userData.stationId = s.id;
+    hit.userData.keep = true;
     root.add(hit);
     hits.push(hit);
 
@@ -292,7 +303,8 @@ export function buildFactory(scene: THREE.Scene): Factory {
   }
 
   const forklift = createForklift();
-  forklift.position.set(68, 0, -6);
+  forklift.position.set(68, 0, -8);
+  forklift.rotation.y = -Math.PI / 2;
   root.add(forklift);
 
   // 货车车头朝北，对准南墙来料门与入库门
@@ -384,35 +396,136 @@ export function buildFactory(scene: THREE.Scene): Factory {
   addTower(46, 0, -12, 'fg');
   addTower(66, 0, 12, 'ship');
 
+  const batch = mergeStaticMeshes(root);
+  if (import.meta.env.DEV) {
+    console.info(`[factory] 静态网格 ${batch.mergedMeshes} → ${batch.batches} 批`);
+  }
+
+  const lifts: LiftRig[] = [];
+  root.traverse((o) => {
+    if (o.userData.role !== 'lift-cage') return;
+    const parent = o.parent;
+    const counter = parent?.children.find((c) => c.userData.role === 'lift-counter') ?? null;
+    lifts.push({
+      cage: o,
+      counter,
+      x: parent?.position.x ?? 0,
+      z: parent?.position.z ?? 0,
+      homeY: o.position.y,
+    });
+  });
+
+  const stationById = new Map(stations.map((s) => [s.id, s]));
+  const busyOf = (obj: THREE.Object3D) => {
+    let p: THREE.Object3D | null = obj;
+    while (p) {
+      const id = p.userData.stationId as string | undefined;
+      if (id) {
+        const st = stationById.get(id);
+        return !!st && (st.status === 'busy' || st.status === 'run');
+      }
+      p = p.parent;
+    }
+    return false;
+  };
+
+  interface SpinNode {
+    obj: THREE.Object3D;
+    axis: 'x' | 'y' | 'z';
+    speed: number;
+    idle: number;
+  }
+  interface BobNode {
+    obj: THREE.Object3D;
+    axis: 'x' | 'y' | 'z';
+    amp: number;
+    speed: number;
+    base: number;
+    level: number;
+  }
+  const spinners: SpinNode[] = [];
+  const bobbers: BobNode[] = [];
+  root.traverse((o) => {
+    const s = o.userData.spin as { axis?: 'x' | 'y' | 'z'; speed?: number; idle?: number } | undefined;
+    if (s?.axis && s.speed) {
+      spinners.push({ obj: o, axis: s.axis, speed: s.speed, idle: s.idle ?? (s.axis === 'z' ? 1 : 0) });
+    }
+    const b = o.userData.bob as { axis?: 'x' | 'y' | 'z'; amp?: number; speed?: number } | undefined;
+    if (b?.axis && b.amp && b.speed) {
+      bobbers.push({
+        obj: o,
+        axis: b.axis,
+        amp: b.amp,
+        speed: b.speed,
+        base: o.position[b.axis],
+        level: 0,
+      });
+    }
+  });
+
+  const fkWheels: THREE.Object3D[] = [];
+  forklift.traverse((o) => {
+    if (o.userData.wheelR) fkWheels.push(o);
+  });
+
+  const towerState = { run: 'run', busy: 'busy', wait: 'wait', fault: 'wait', idle: 'idle' } as const;
+
   /* ================================================================
    *  更新
    * ================================================================ */
   let fkPhase = 0;
+  let fkYaw = -Math.PI / 2;
   const update = (dt: number, t: number) => {
     for (const c of conveyors) c.update(dt);
-    for (const a of agvs) a.update(dt, t, false);
-    for (const tw of towers) tw.update(dt, t);
-    for (const r of Object.values(robots)) r.update(dt, t);
-
-    for (const m of machines) {
-      const sid = m.userData.stationId as string | undefined;
-      const st = sid ? stations.find((s) => s.id === sid) : undefined;
-      const busy = st ? st.status === 'busy' || st.status === 'run' : false;
-      m.traverse((o) => {
-        const s = (o as THREE.Object3D).userData.spin;
-        if (!s) return;
-        if (s.axis === 'z') o.rotation.z += s.speed * dt;
-        else if (s.axis === 'y') o.rotation.y += (busy ? 1 : 0) * s.speed * dt;
-        else if (s.axis === 'x') o.rotation.x += (busy ? 1 : 0) * s.speed * dt;
-      });
+    for (const tw of towers) {
+      const sid = Object.keys(stationTowers).find((id) => stationTowers[id] === tw);
+      if (sid) {
+        const st = stationById.get(sid);
+        if (st) tw.set(towerState[st.status]);
+      }
+      tw.update(dt, t);
     }
 
-    // 叉车巡游（成品库 → 入库门内侧），走办公楼东侧
-    fkPhase += dt * 0.1;
-    const p = fkPhase % 1;
+    for (const s of spinners) {
+      const factor = busyOf(s.obj) ? 1 : s.idle;
+      s.obj.rotation[s.axis] += s.speed * factor * dt;
+    }
+    for (const b of bobbers) {
+      b.level = THREE.MathUtils.damp(b.level, busyOf(b.obj) ? 1 : 0, 5, dt);
+      b.obj.position[b.axis] = b.base + Math.sin(t * b.speed) * b.amp * b.level;
+    }
+
+    // 叉车在办公楼东侧往返，车头顺着行驶方向转
+    const cycle = 16;
+    fkPhase = (fkPhase + dt) % cycle;
+    const p = fkPhase / cycle;
+    const span = 24;
+    let z = -8;
+    let targetYaw = -Math.PI / 2;
+    let signed = 0;
+    if (p < 0.36) {
+      z = -8 + (p / 0.36) * span;
+      targetYaw = -Math.PI / 2;
+      signed = span / (0.36 * cycle);
+    } else if (p < 0.5) {
+      z = 16;
+      targetYaw = Math.PI / 2;
+    } else if (p < 0.86) {
+      z = 16 - ((p - 0.5) / 0.36) * span;
+      targetYaw = Math.PI / 2;
+      signed = -span / (0.36 * cycle);
+    } else {
+      z = -8;
+      targetYaw = -Math.PI / 2;
+    }
     forklift.position.x = 68;
-    forklift.position.z = p < 0.5 ? -8 + (p / 0.5) * 24 : 16 - ((p - 0.5) / 0.5) * 24;
-    forklift.rotation.y = p < 0.5 ? 0 : Math.PI;
+    forklift.position.z = z;
+    fkYaw = dampAngle(fkYaw, targetYaw, 7, dt);
+    forklift.rotation.y = fkYaw;
+    for (const w of fkWheels) {
+      const r = w.userData.wheelR as number;
+      w.rotation.y += (signed * dt) / r;
+    }
   };
 
   return {
@@ -426,6 +539,7 @@ export function buildFactory(scene: THREE.Scene): Factory {
     stationTowers,
     agvs,
     forklift,
+    lifts,
     update,
   };
 }
