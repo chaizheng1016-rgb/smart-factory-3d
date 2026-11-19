@@ -27,16 +27,16 @@ function genSeries(seed: number): HourPoint[] {
 export const hourlyOutput = genSeries(20261112);
 
 export const workOrders = [
-  { no: 'WO-20261112-001', product: '精密减速机壳体', qty: 480, done: 312, state: '生产中' },
-  { no: 'WO-20261112-002', product: '电机端盖组件', qty: 260, done: 96, state: '生产中' },
-  { no: 'WO-20261112-003', product: '轴承座支架', qty: 180, done: 180, state: '已完工' },
+  { no: 'WO-20261112-001', product: '表面活性剂', qty: 480, done: 312, state: '生产中' },
+  { no: 'WO-20261112-002', product: '纺织助剂', qty: 260, done: 96, state: '生产中' },
+  { no: 'WO-20261112-003', product: '灌装成品', qty: 180, done: 180, state: '已完工' },
 ];
 
 export const deviceHealth = [
-  { id: 'CNC-01', oee: 92.4, state: '运行' },
-  { id: 'CNC-02', oee: 88.7, state: '运行' },
-  { id: 'ROB-01', oee: 95.1, state: '运行' },
-  { id: 'PK-01', oee: 86.3, state: '运行' },
+  { id: 'A-02', oee: 93.4, state: '运行' },
+  { id: 'B-02', oee: 90.1, state: '运行' },
+  { id: 'B-03', oee: 88.6, state: '运行' },
+  { id: 'C-02', oee: 94.2, state: '运行' },
 ];
 
 export const materialStateText: Record<string, string> = {

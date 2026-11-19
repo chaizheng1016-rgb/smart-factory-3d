@@ -130,11 +130,30 @@ export function createFloorTexture(): THREE.Texture {
   ctx.save();
   ctx.fillStyle = 'rgba(34,197,94,0.2)';
   ctx.fillRect(X(-74), Z(4.2), W(148), W(2.4));
-  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([22, 18]);
+  ctx.beginPath();
+  ctx.moveTo(X(-72), Z(5.4));
+  ctx.lineTo(X(72), Z(5.4));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  for (const ax of [-48, -18, 14, 36]) {
+    const y = Z(5.4);
+    const x = X(ax);
+    ctx.beginPath();
+    ctx.moveTo(x + 18, y);
+    ctx.lineTo(x - 8, y - 9);
+    ctx.lineTo(x - 8, y + 9);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
   ctx.font = `600 32px "Microsoft YaHei","PingFang SC",sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('物 流 通 道', X(-16), Z(5.4));
+  ctx.fillText('物 流 通 道', X(56), Z(5.4));
   ctx.restore();
 
   // 装卸月台（南墙：来料门在西，入库门在办公楼右侧）
@@ -152,6 +171,26 @@ export function createFloorTexture(): THREE.Texture {
   ctx.textBaseline = 'middle';
   ctx.fillText('来 料 门', X(-60), Z(19.4));
   ctx.fillText('入 库 门', X(69.5), Z(19.4));
+  const hatch = (x: number, z: number, ww: number, dd: number) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(X(x), Z(z), W(ww), W(dd));
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(242,182,50,0.55)';
+    ctx.lineWidth = 5;
+    const x0 = X(x);
+    const y0 = Z(z);
+    const ph = W(dd);
+    for (let i = -8; i < 18; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x0 + i * 16, y0);
+      ctx.lineTo(x0 + i * 16 + ph, y0 + ph);
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+  hatch(-66, 26.2, 12, 3.2);
+  hatch(65, 26.2, 9, 3.2);
   ctx.restore();
 
   // 办公楼（入库门在其右侧）
@@ -214,25 +253,33 @@ export function createBrushedTexture(): THREE.Texture {
   return tex;
 }
 
-/** 辊道输送机纹理（滚动模拟辊筒转动） */
+/** 辊道输送机纹理（滚动模拟辊筒转动）。克隆后各自滚动，共用同一张图。 */
+let rollerBase: THREE.Texture | null = null;
 export function createRollerTexture(): THREE.Texture {
-  const { c, ctx } = makeCanvas(128, 128);
-  ctx.fillStyle = '#4a525b';
-  ctx.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 128; i += 16) {
-    const g = ctx.createLinearGradient(i, 0, i + 16, 0);
-    g.addColorStop(0, '#3a4149');
-    g.addColorStop(0.45, '#69737e');
-    g.addColorStop(0.6, '#7d8791');
-    g.addColorStop(1, '#3a4149');
-    ctx.fillStyle = g;
-    ctx.fillRect(i, 0, 16, 128);
+  if (!rollerBase) {
+    const { c, ctx } = makeCanvas(128, 64);
+    ctx.fillStyle = '#2c333a';
+    ctx.fillRect(0, 0, 128, 64);
+    for (let i = 0; i < 128; i += 16) {
+      const g = ctx.createLinearGradient(i, 0, i + 16, 0);
+      g.addColorStop(0, '#23282e');
+      g.addColorStop(0.18, '#5c6772');
+      g.addColorStop(0.48, '#d5dde6');
+      g.addColorStop(0.62, '#8b97a3');
+      g.addColorStop(1, '#23282e');
+      ctx.fillStyle = g;
+      ctx.fillRect(i, 0, 15, 64);
+      ctx.fillStyle = '#1a1f24';
+      ctx.fillRect(i + 15, 0, 1, 64);
+    }
+    rollerBase = new THREE.CanvasTexture(c);
+    rollerBase.colorSpace = THREE.SRGBColorSpace;
+    rollerBase.wrapS = THREE.RepeatWrapping;
+    rollerBase.wrapT = THREE.RepeatWrapping;
+    rollerBase.anisotropy = 8;
   }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 8;
+  const tex = rollerBase.clone();
+  tex.needsUpdate = true;
   return tex;
 }
 

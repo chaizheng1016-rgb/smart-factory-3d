@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { C } from '../core/palette';
-import { box, cyl, sphere, mat, emissive, glassMaterial } from '../core/utils';
+import { box, cyl, sphere, torus, mat, emissive, glassMaterial } from '../core/utils';
 import { createBeltTexture, createRollerTexture } from '../core/textures';
 
 /* ------------------------------------------------------------------ */
@@ -96,6 +96,7 @@ export interface RobotHandle {
 
 export function createRobot(facing = 0): RobotHandle {
   const g = new THREE.Group();
+  g.userData.dynamic = true;
   cyl(g, 0.52, 0.58, 0.26, 24, M.dark, { pos: [0, 0.13, 0] });
   cyl(g, 0.4, 0.46, 0.16, 24, M.accent, { pos: [0, 0.32, 0] });
 
@@ -407,45 +408,61 @@ export function createRack(
 export interface AgvHandle {
   group: THREE.Group;
   deckY: number;
-  update(dt: number, t: number, busy: boolean): void;
+  update(dt: number, t: number, busy: boolean, travel?: number): void;
 }
 
 export function createAgv(): AgvHandle {
   const g = new THREE.Group();
-  box(g, 1.95, 0.28, 1.15, M.dark, { pos: [0, 0.3, 0] });
-  box(g, 1.8, 0.08, 1.05, M.steel, { pos: [0, 0.47, 0] });
-  box(g, 0.14, 0.85, 0.95, M.trim, { pos: [-0.92, 0.72, 0] });
-  box(g, 0.6, 0.06, 0.85, M.steel, { pos: [-0.58, 0.22, 0] });
+  g.userData.dynamic = true;
+  const body = new THREE.Group();
+  g.add(body);
 
-  const wheels: THREE.Mesh[] = [];
-  for (const x of [-0.62, 0.62]) {
+  box(body, 1.72, 0.2, 1.02, M.dark, { pos: [0, 0.28, 0] });
+  box(body, 1.82, 0.05, 1.1, M.safety, { pos: [0, 0.16, 0], cast: false });
+  box(body, 1.46, 0.06, 0.9, M.steel, { pos: [0, 0.4, 0] });
+  box(body, 0.08, 0.32, 0.72, M.trim, { pos: [0.86, 0.38, 0] });
+  box(body, 0.02, 0.16, 0.28, emissive(0x37d6ff, 1.35), { pos: [0.91, 0.4, 0], cast: false });
+
+  const lidar = new THREE.Group();
+  lidar.position.set(-0.62, 0.62, 0);
+  lidar.userData.spin = { axis: 'y', speed: 2.4, idle: 1 };
+  cyl(lidar, 0.07, 0.09, 0.22, 10, M.trim, { pos: [0, -0.08, 0], cast: false });
+  cyl(lidar, 0.15, 0.15, 0.05, 14, M.part, { cast: false });
+  body.add(lidar);
+
+  const wheels: THREE.Object3D[] = [];
+  for (const x of [-0.55, 0.55]) {
     for (const s of [-1, 1]) {
-      const w = cyl(g, 0.19, 0.19, 0.14, 14, M.rubber, {
-        pos: [x, 0.19, s * 0.55],
-        rot: [Math.PI / 2, 0, 0],
-      });
-      wheels.push(w);
+      const mount = new THREE.Group();
+      mount.position.set(x, 0.18, s * 0.52);
+      mount.rotation.x = Math.PI / 2;
+      const spin = new THREE.Group();
+      cyl(spin, 0.18, 0.18, 0.12, 12, M.rubber, { cast: false });
+      mount.add(spin);
+      body.add(mount);
+      wheels.push(spin);
     }
   }
 
   const led = emissive(C.ledBlue, 1.6);
-  box(g, 1.6, 0.05, 0.04, led, { pos: [0, 0.56, 0.58] });
-  box(g, 1.6, 0.05, 0.04, led, { pos: [0, 0.56, -0.58] });
+  box(body, 1.5, 0.035, 0.03, led, { pos: [0, 0.5, 0.52], cast: false });
+  box(body, 1.5, 0.035, 0.03, led, { pos: [0, 0.5, -0.52], cast: false });
 
-  cyl(g, 0.035, 0.035, 0.4, 8, M.dark, { pos: [0.75, 0.72, 0] });
-  const beacon = sphere(g, 0.09, emissive(C.ledAmber, 1.6), { pos: [0.75, 0.98, 0] });
+  const beacon = sphere(body, 0.07, emissive(C.ledAmber, 1.6), { pos: [0.62, 0.58, 0.38], cast: false });
 
-  let spin = 0;
   return {
     group: g,
-    deckY: 0.51,
-    update(dt: number, t: number, busy: boolean) {
-      spin += dt * 4;
-      for (const w of wheels) w.rotation.z -= dt * 4;
+    deckY: 0.44,
+    update(dt: number, t: number, busy: boolean, travel = 0) {
+      const moving = travel > 0.0008;
+      const bob = moving ? Math.sin(t * 16) * 0.012 : 0;
+      body.position.y += (bob - body.position.y) * Math.min(1, dt * 8);
+      const roll = travel / 0.18;
+      for (const w of wheels) w.rotation.y -= roll;
       (beacon.material as THREE.MeshStandardMaterial).emissiveIntensity = busy
-        ? 1.2 + Math.sin(t * 7) * 1.1
-        : 0.35;
-      (led as THREE.MeshStandardMaterial).emissiveIntensity = busy ? 1.8 : 0.5;
+        ? 1.15 + Math.sin(t * 7) * 0.95
+        : 0.28;
+      (led as THREE.MeshStandardMaterial).emissiveIntensity = busy ? 1.7 : 0.45;
     },
   };
 }
@@ -455,6 +472,7 @@ export function createAgv(): AgvHandle {
 /* ------------------------------------------------------------------ */
 export function createForklift(): THREE.Group {
   const g = new THREE.Group();
+  g.userData.dynamic = true;
   box(g, 1.9, 0.7, 1.05, M.accent, { pos: [0, 0.6, 0] });
   box(g, 0.75, 0.95, 1.0, M.trim, { pos: [-0.72, 1.0, 0] });
   box(g, 1.5, 0.1, 1.0, M.dark, { pos: [-0.1, 1.82, 0] });
@@ -469,10 +487,21 @@ export function createForklift(): THREE.Group {
   for (const s of [-1, 1]) {
     box(g, 0.85, 0.07, 0.16, M.steel, { pos: [1.4, 0.18, s * 0.28] });
   }
-  cyl(g, 0.32, 0.32, 0.22, 14, M.rubber, { pos: [0.62, 0.32, 0.52], rot: [Math.PI / 2, 0, 0] });
-  cyl(g, 0.32, 0.32, 0.22, 14, M.rubber, { pos: [0.62, 0.32, -0.52], rot: [Math.PI / 2, 0, 0] });
-  cyl(g, 0.24, 0.24, 0.2, 12, M.rubber, { pos: [-0.78, 0.24, 0.48], rot: [Math.PI / 2, 0, 0] });
-  cyl(g, 0.24, 0.24, 0.2, 12, M.rubber, { pos: [-0.78, 0.24, -0.48], rot: [Math.PI / 2, 0, 0] });
+  const wheel = (x: number, z: number, r: number) => {
+    const mount = new THREE.Group();
+    mount.position.set(x, r, z);
+    mount.rotation.x = Math.PI / 2;
+    const spin = new THREE.Group();
+    spin.userData.wheelR = r;
+    cyl(spin, r, r, r > 0.28 ? 0.22 : 0.18, 12, M.rubber, { cast: false });
+    mount.add(spin);
+    g.add(mount);
+    return spin;
+  };
+  wheel(0.62, 0.52, 0.32);
+  wheel(0.62, -0.52, 0.32);
+  wheel(-0.78, 0.48, 0.24);
+  wheel(-0.78, -0.48, 0.24);
   cyl(g, 0.03, 0.03, 0.35, 8, M.dark, { pos: [-0.6, 1.95, 0] });
   sphere(g, 0.08, emissive(C.ledAmber, 1.4), { pos: [-0.6, 2.15, 0] });
   return g;
@@ -600,25 +629,31 @@ export interface TowerHandle {
 
 export function createSignalTower(height = 2.6): TowerHandle {
   const g = new THREE.Group();
-  cyl(g, 0.06, 0.08, height, 10, M.dark, { pos: [0, height / 2, 0] });
-  cyl(g, 0.16, 0.16, 0.05, 12, M.dark, { pos: [0, height + 0.03, 0] });
+  g.userData.dynamic = true;
+  box(g, 0.28, 0.06, 0.28, M.dark, { pos: [0, 0.03, 0], cast: false });
+  cyl(g, 0.06, 0.08, height, 10, M.dark, { pos: [0, height / 2, 0], cast: false });
+  cyl(g, 0.16, 0.16, 0.05, 12, M.dark, { pos: [0, height + 0.03, 0], cast: false });
   const colors = [C.ledGreen, C.ledAmber, C.ledRed];
   const lamps: THREE.Mesh[] = [];
   colors.forEach((c, i) => {
-    const lamp = cyl(g, 0.13, 0.13, 0.16, 12, emissive(c, 0.15), { pos: [0, height + 0.16 + i * 0.19, 0] });
+    const lamp = cyl(g, 0.13, 0.13, 0.16, 12, emissive(c, 0.15), {
+      pos: [0, height + 0.16 + i * 0.19, 0],
+      cast: false,
+    });
     lamps.push(lamp);
   });
-  let active = 2;
+  let active = -1;
   return {
     group: g,
     set(state: 'run' | 'busy' | 'wait' | 'idle') {
-      active = state === 'run' ? 0 : state === 'busy' ? 1 : state === 'wait' ? 2 : 1;
+      active = state === 'run' ? 0 : state === 'busy' ? 1 : state === 'wait' ? 2 : -1;
     },
     update(_dt: number, t: number) {
       lamps.forEach((l, i) => {
         const m = l.material as THREE.MeshStandardMaterial;
         const on = i === active;
-        m.emissiveIntensity = on ? 1.4 + Math.sin(t * 6) * 0.7 : 0.08;
+        const idleGreen = active < 0 && i === 0 ? 0.22 : 0.05;
+        m.emissiveIntensity = on ? 1.35 + Math.sin(t * 6) * 0.55 : idleGreen;
       });
     },
   };
@@ -673,18 +708,29 @@ export function createCar(bodyColor = 0xb8bec6): THREE.Group {
 /*  （纺织前处理用化学原料：合成 / 复配 / 灌装）                        */
 /* ------------------------------------------------------------------ */
 
-/** 平台栏杆 */
-function railing(g: THREE.Group, r: number, y: number, seg = 16) {
+/** 平台栏杆：立柱 + 两道真圆环，不再用压扁的圆柱冒充 */
+function railing(g: THREE.Group, r: number, y: number, seg = 12) {
   const m = mat(C.safety, { roughness: 0.55, metalness: 0.25 });
-  const t = mat(0x9aa3ad, { roughness: 0.5, metalness: 0.5 });
   for (let i = 0; i < seg; i++) {
     const a = (i / seg) * Math.PI * 2;
-    cyl(g, 0.035, 0.035, 1.05, 6, m, { pos: [Math.cos(a) * r, y + 0.52, Math.sin(a) * r] });
+    cyl(g, 0.04, 0.04, 0.9, 6, m, { pos: [Math.cos(a) * r, y + 0.45, Math.sin(a) * r], cast: false });
   }
-  const ring1 = cyl(g, 0.045, 0.045, r * 2 * Math.PI, 4, m, { pos: [0, y + 1.02, 0], rot: [Math.PI / 2, 0, 0] });
-  ring1.scale.set(1, 1, 0.06);
-  const ring2 = cyl(g, 0.035, 0.035, r * 2 * Math.PI, 4, t, { pos: [0, y + 0.55, 0], rot: [Math.PI / 2, 0, 0] });
-  ring2.scale.set(1, 1, 0.06);
+  torus(g, r, 0.032, m, { pos: [0, y + 0.9, 0], cast: false });
+  torus(g, r, 0.02, M.steel, { pos: [0, y + 0.4, 0], cast: false });
+}
+
+/** 靠通道一侧的检修爬梯 */
+function ladder(g: THREE.Group, x: number, z: number, height: number, y0 = 0.2) {
+  for (const s of [-1, 1]) {
+    box(g, 0.05, height, 0.05, M.steel, { pos: [x + s * 0.16, y0 + height / 2, z], cast: false });
+  }
+  const steps = Math.max(3, Math.round(height / 0.38));
+  for (let i = 0; i < steps; i++) {
+    box(g, 0.34, 0.028, 0.05, M.steel, {
+      pos: [x, y0 + 0.28 + (i * (height - 0.4)) / steps, z],
+      cast: false,
+    });
+  }
 }
 
 /** 立式反应釜 / 搅拌罐 */
@@ -705,7 +751,7 @@ export function createReactor(d: number, h: number, accent: number): THREE.Group
   const dome = sphere(g, r, body, { pos: [0, 0.95 + h - 1.5, 0] });
   dome.scale.set(1, 0.45, 1);
   const bottom = sphere(g, r, body, { pos: [0, 0.95, 0] });
-  bottom.scale.set(1, -0.4, 1);
+  bottom.scale.set(1, 0.4, 1);
   // 加强圈
   for (const y of [0.95 + h * 0.3, 0.95 + h * 0.7]) {
     const ring = cyl(g, r + 0.06, r + 0.06, 0.1, 26, trim, { pos: [0, y, 0] });
@@ -729,7 +775,10 @@ export function createReactor(d: number, h: number, accent: number): THREE.Group
     pos: [0, 0.95 + h * 0.62, 0],
   });
   plat.scale.set(1, 1, 1);
-  railing(g, r + 0.82, 0.95 + h * 0.62 + 0.05, 20);
+  railing(g, r + 0.82, 0.95 + h * 0.62 + 0.05, 14);
+  torus(g, r + 0.04, 0.045, M.steel, { pos: [0, 0.95 + (h - 1.5) * 0.5, 0], cast: false });
+  ladder(g, 0, r + 0.78, 0.95 + h * 0.62, 0.15);
+  cyl(g, 0.12, 0.16, 0.28, 10, M.steel, { pos: [r * 0.2, 0.95 + h - 1.5 + r * 0.42, r * 0.55] });
   return g;
 }
 
@@ -753,8 +802,10 @@ export function createTower(d: number, h: number, accent: number): THREE.Group {
       pos: [0, 0.9 + (h - 1.4) * f, 0],
     });
     plat.scale.set(1, 1, 1);
-    railing(g, r + 0.67, 0.9 + (h - 1.4) * f + 0.04, 18);
+    railing(g, r + 0.67, 0.9 + (h - 1.4) * f + 0.04, 12);
+    torus(g, r + 0.03, 0.035, M.trim, { pos: [0, 0.9 + (h - 1.4) * f, 0], cast: false });
   }
+  ladder(g, r + 0.62, 0, (h - 1.4) * 0.74 + 0.9, 0.2);
   // 侧管
   for (let i = 0; i < 3; i++) {
     cyl(g, 0.075, 0.075, 2.2, 8, M.steel, {
@@ -781,9 +832,11 @@ export function createDosing(d: number, h: number, accent: number): THREE.Group 
     [-d * 0.22, 0.62, 1.7],
     [d * 0.22, 0.52, 1.35],
   ] as const) {
-    cyl(g, r, r, hh, 18, mat(0xdde2e7, { roughness: 0.3, metalness: 0.6 }), { pos: [x, 0.24 + hh / 2, -0.35] });
-    const lid = sphere(g, r, mat(0xdde2e7, { roughness: 0.3, metalness: 0.6 }), { pos: [x, 0.24 + hh, -0.35] });
+    const shell = mat(0xdde2e7, { roughness: 0.3, metalness: 0.6 });
+    cyl(g, r, r, hh, 18, shell, { pos: [x, 0.24 + hh / 2, -0.35] });
+    const lid = sphere(g, r, shell, { pos: [x, 0.24 + hh, -0.35] });
     lid.scale.set(1, 0.35, 1);
+    cyl(g, 0.1, r * 0.85, 0.32, 12, shell, { pos: [x, 0.24 + hh + 0.16, -0.35] });
     cyl(g, 0.05, 0.05, 1.3, 8, M.steel, { pos: [x + r * 0.8, 0.9, -0.35] });
   }
   // 计量泵 + 电机
@@ -812,15 +865,23 @@ export function createFilter(d: number, h: number, accent: number): THREE.Group 
   }
   box(g, w + 0.4, 0.3, 0.7, frame, { pos: [0, h - 0.55, 0] });
   // 滤板叠
-  const plate = mat(0xc8ccd1, { roughness: 0.45, metalness: 0.45 });
+  const plateA = mat(0xd5d8dc, { roughness: 0.48, metalness: 0.32 });
+  const plateB = mat(0x8d969f, { roughness: 0.4, metalness: 0.48 });
   const n = 14;
   for (let i = 0; i < n; i++) {
-    box(g, 0.07, h - 1.5, 1.9, plate, { pos: [-w / 2 + 0.4 + i * ((w - 0.8) / (n - 1)), 0.9 + (h - 1.5) / 2, 0] });
+    box(g, 0.07, h - 1.5, 1.9, i % 2 ? plateB : plateA, {
+      pos: [-w / 2 + 0.4 + i * ((w - 0.8) / (n - 1)), 0.9 + (h - 1.5) / 2, 0],
+    });
   }
-  // 液压缸 + 电机
-  cyl(g, 0.24, 0.24, 0.9, 14, M.steel, { pos: [w / 2 + 0.5, 0.9 + (h - 1.5) / 2, 0], rot: [0, 0, Math.PI / 2] });
-  cyl(g, 0.3, 0.3, 0.6, 12, mat(accent, { roughness: 0.45, metalness: 0.35 }), {
-    pos: [-w / 2 - 0.5, 0.9 + (h - 1.5) / 2, 0],
+  // 液压缸：作业时沿轴向轻轻伸缩
+  const ram = new THREE.Group();
+  const ramY = 0.9 + (h - 1.5) / 2;
+  ram.position.set(-w / 2 - 0.15, ramY, 0);
+  ram.userData.bob = { axis: 'x', amp: 0.16, speed: 2.2 };
+  cyl(ram, 0.22, 0.22, 0.7, 14, M.steel, { rot: [0, 0, Math.PI / 2] });
+  g.add(ram);
+  cyl(g, 0.3, 0.3, 0.55, 12, mat(accent, { roughness: 0.45, metalness: 0.35 }), {
+    pos: [w / 2 + 0.45, ramY, 0],
     rot: [0, 0, Math.PI / 2],
   });
   // 集液盘
@@ -838,20 +899,24 @@ export function createHeatExchanger(d: number, h: number, accent: number): THREE
   }
   box(g, d + 0.5, 0.22, 0.4, frame, { pos: [0, h - 0.12, 0] });
   box(g, d + 0.5, 0.22, 0.4, frame, { pos: [0, 0.12, 0] });
+  box(g, d, 0.08, 0.1, mat(accent, { roughness: 0.45, metalness: 0.3 }), {
+    pos: [0, h * 0.5, 0.58],
+    cast: false,
+  });
   const n = 18;
   for (let i = 0; i < n; i++) {
     box(g, 0.06, h - 0.7, 1.1, plate, { pos: [-d / 2 + 0.25 + i * ((d - 0.5) / (n - 1)), h / 2, 0] });
   }
-  for (const [x, y] of [
-    [-d / 2 - 0.1, h - 0.1],
-    [d / 2 + 0.1, h - 0.1],
-    [-d / 2 - 0.1, 0.2],
-    [d / 2 + 0.1, 0.2],
-  ]) {
-    cyl(g, 0.11, 0.11, 1.4, 10, mat(accent, { roughness: 0.45, metalness: 0.4 }), {
-      pos: [x, y, 0],
-      rot: [0, 0, Math.PI / 2],
-    });
+  const hot = mat(0xc4473a, { roughness: 0.42, metalness: 0.4 });
+  const cold = mat(0x3a7ec4, { roughness: 0.42, metalness: 0.4 });
+  for (const [x, y, port] of [
+    [-d / 2 - 0.15, h - 0.15, hot],
+    [-d / 2 - 0.15, 0.22, hot],
+    [d / 2 + 0.15, h - 0.15, cold],
+    [d / 2 + 0.15, 0.22, cold],
+  ] as const) {
+    cyl(g, 0.12, 0.12, 1.35, 10, port, { pos: [x, y, 0], rot: [0, 0, Math.PI / 2] });
+    torus(g, 0.16, 0.03, M.steel, { pos: [x + Math.sign(x) * 0.55, y, 0], rot: [0, Math.PI / 2, 0], cast: false });
   }
   return g;
 }
@@ -875,7 +940,8 @@ export function createBufferTank(d: number, h: number, accent: number): THREE.Gr
   // 顶部平台 + 泵
   const plat = cyl(g, r + 0.7, r + 0.7, 0.09, 24, mat(0x6f7883, { roughness: 0.8 }), { pos: [0, h - 0.4, 0] });
   plat.scale.set(1, 1, 1);
-  railing(g, r + 0.67, h - 0.36, 20);
+  railing(g, r + 0.67, h - 0.36, 12);
+  ladder(g, 0, r + 0.62, h - 0.5, 0.15);
   cyl(g, 0.2, 0.2, 0.55, 12, mat(accent, { roughness: 0.45, metalness: 0.35 }), { pos: [r + 0.5, 0.45, 0.4] });
   cyl(g, 0.09, 0.09, 1.4, 8, M.steel, { pos: [r + 0.2, 1.1, 0.4] });
   return g;
@@ -899,8 +965,18 @@ export function createFillingMachine(d: number, h: number, accent: number): THRE
     const a = (i / 6) * Math.PI * 2;
     cyl(carousel, 0.07, 0.07, 0.55, 8, M.steel, { pos: [Math.cos(a) * 0.62, -0.28, Math.sin(a) * 0.62] });
   }
-  carousel.userData.spin = { axis: 'y', speed: 1.6 };
+  carousel.userData.spin = { axis: 'y', speed: 1.6, idle: 0.15 };
   g.add(carousel);
+  // 朝向辊道的一排灌装头，作业时上下点动
+  const heads = new THREE.Group();
+  heads.position.set(0, h - 0.72, 0.95);
+  heads.userData.bob = { axis: 'y', amp: 0.14, speed: 3.1 };
+  for (let i = 0; i < 4; i++) {
+    const x = -0.72 + i * 0.48;
+    cyl(heads, 0.045, 0.045, 0.42, 8, M.steel, { pos: [x, -0.05, 0], cast: false });
+    cyl(heads, 0.09, 0.035, 0.1, 8, mat(accent, { roughness: 0.4, metalness: 0.35 }), { pos: [x, -0.28, 0] });
+  }
+  g.add(heads);
   // 计量管
   cyl(g, 0.1, 0.1, h - 1.3, 8, M.steel, { pos: [0, h - 0.65, 0] });
   // 桶位
@@ -920,11 +996,16 @@ export function createLabeler(d: number, h: number, accent: number): THREE.Group
     box(g, 0.14, h, 0.14, frame, { pos: [d / 2 - 0.4, h / 2, s * 0.9] });
   }
   box(g, 0.5, 0.24, 2.1, frame, { pos: [d / 2 - 0.4, h, 0] });
-  // 标签卷 + 贴标头
-  cyl(g, 0.38, 0.38, 0.34, 20, mat(0xe6e2d8, { roughness: 0.85 }), {
-    pos: [d / 2 - 0.4, h - 0.55, -0.55],
-    rot: [0, 0, Math.PI / 2],
-  });
+  // 标签卷（绕自身轴转动）+ 贴标头
+  const rollMount = new THREE.Group();
+  rollMount.position.set(d / 2 - 0.4, h - 0.55, -0.55);
+  rollMount.rotation.z = Math.PI / 2;
+  const roll = new THREE.Group();
+  roll.userData.spin = { axis: 'y', speed: 4.5, idle: 0.2 };
+  cyl(roll, 0.38, 0.38, 0.34, 20, mat(0xe6e2d8, { roughness: 0.85 }));
+  cyl(roll, 0.12, 0.12, 0.38, 10, M.trim);
+  rollMount.add(roll);
+  g.add(rollMount);
   box(g, 0.45, 0.4, 0.35, mat(accent, { roughness: 0.45 }), { pos: [d / 2 - 0.4, h - 1.0, 0.1] });
   // 桶
   cyl(g, 0.32, 0.32, 0.88, 18, mat(0x3f7fb8, { roughness: 0.45 }), { pos: [0, 0.44, 0] });
@@ -944,6 +1025,10 @@ export function createDrum(color = 0x2f6fbf, h = 0.88, r = 0.32): THREE.Group {
     ring.scale.set(1, 1, 1);
   }
   cyl(g, r * 0.92, r * 0.92, 0.05, 18, mat(0x8d959d, { roughness: 0.45, metalness: 0.5 }), { pos: [0, h + 0.02, 0] });
+  cyl(g, r + 0.012, r + 0.012, 0.14, 18, mat(0xf3f0e6, { roughness: 0.72, metalness: 0.05 }), {
+    pos: [0, h * 0.55, 0],
+    cast: false,
+  });
   cyl(g, 0.07, 0.07, 0.04, 8, mat(0x5d666e), { pos: [r * 0.4, h + 0.06, 0] });
   return g;
 }
@@ -1056,11 +1141,18 @@ export function createCoolingRack(w: number, _h: number, accent: number): THREE.
     box(g, 0.82, 1.2, 0.4, mat(0x9aa3ad, { roughness: 0.45, metalness: 0.45 }), {
       pos: [x, 1.35, -0.95],
     });
-    const fan = cyl(g, 0.28, 0.28, 0.06, 14, mat(accent, { roughness: 0.4, metalness: 0.35 }), {
-      pos: [x, 1.35, -0.7],
-      rot: [Math.PI / 2, 0, 0],
-    });
-    fan.userData.spin = { axis: 'z', speed: 4.2 };
+    const fan = new THREE.Group();
+    fan.position.set(x, 1.35, -0.7);
+    fan.userData.spin = { axis: 'z', speed: 16, idle: 1 };
+    for (let b = 0; b < 5; b++) {
+      const blade = new THREE.Group();
+      blade.rotation.z = (b / 5) * Math.PI * 2;
+      box(blade, 0.07, 0.28, 0.018, M.part, { pos: [0, 0.16, 0], cast: false });
+      fan.add(blade);
+    }
+    cyl(fan, 0.06, 0.06, 0.08, 10, mat(accent, { roughness: 0.4, metalness: 0.35 }), { cast: false });
+    g.add(fan);
+    torus(g, 0.32, 0.028, M.trim, { pos: [x, 1.35, -0.7], cast: false });
     box(g, 0.16, 0.9, 0.16, M.base, { pos: [x, 0.55, -0.95] });
   }
   for (let i = 0; i < 4; i++) {

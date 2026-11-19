@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { C } from '../core/palette';
-import { box, cyl, mat, emissive, glassMaterial } from '../core/utils';
+import { box, cyl, mat, emissive, emissiveShared, glassMaterial } from '../core/utils';
 import { createFloorTexture, createYardTexture, FACTORY } from '../core/textures';
 import {
   DOORS,
@@ -188,8 +188,14 @@ export function buildBuilding(scene: THREE.Scene): THREE.Group {
       }
     }
     box(cage, 2.8, 0.1, 2.8, steel, { pos: [0, 2.7, 0] });
-    cage.userData.isLiftCage = true;
+    cage.userData.dynamic = true;
+    cage.userData.role = 'lift-cage';
     g.add(cage);
+    const counter = box(g, 0.46, 0.7, 0.46, mat(0x3d4650, { roughness: 0.55, metalness: 0.45 }), {
+      pos: [2.05, 8.4, 0],
+    });
+    counter.userData.dynamic = true;
+    counter.userData.role = 'lift-counter';
     root.add(g);
   };
   for (const line of LINES) {
@@ -265,14 +271,40 @@ export function buildBuilding(scene: THREE.Scene): THREE.Group {
     }
     box(g, 4.6, 0.18, 1.8, frame, { pos: [w / 2 - 0.2, 3.15, d / 2 + 0.35] });
     for (let f = 0; f < 2; f++) {
-      const l = new THREE.PointLight(0xdcecff, 10, 18, 2);
-      l.position.set(0, OFFICE.floorH * (f + 0.5), 0);
-      g.add(l);
+      box(g, w - 1.4, 0.05, d - 1.4, emissiveShared(0xd5e6ff, 0.9), {
+        pos: [0, OFFICE.floorH * (f + 1) - 0.22, 0],
+        cast: false,
+        receive: false,
+      });
     }
     box(g, 2.6, 0.85, 1.7, mat(0x8e97a1, { roughness: 0.6, metalness: 0.4 }), {
       pos: [-2.5, OFFICE.floorH * 2 + 0.72, 0],
     });
     root.add(g);
+  }
+
+  /* ---------------- 产线上方灯带（自发光，不增加实时光源） ---------------- */
+  {
+    const fixtureMat = emissiveShared(0xfff1d4, 1.65);
+    const fixtureGeo = new THREE.BoxGeometry(2.4, 0.07, 0.28);
+    const dummy = new THREE.Object3D();
+    for (const line of LINES) {
+      const n = Math.max(2, Math.round((line.x1 - line.x0) / 7.5));
+      const fixtures = new THREE.InstancedMesh(fixtureGeo, fixtureMat, n);
+      fixtures.userData.keep = true;
+      fixtures.castShadow = false;
+      fixtures.receiveShadow = false;
+      for (let i = 0; i < n; i++) {
+        const x = line.x0 + ((i + 0.5) * (line.x1 - line.x0)) / n;
+        dummy.position.set(x, ROOF_Y - 1.25, line.z + 0.4);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        fixtures.setMatrixAt(i, dummy.matrix);
+      }
+      fixtures.instanceMatrix.needsUpdate = true;
+      root.add(fixtures);
+    }
   }
 
   scene.add(root);
